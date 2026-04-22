@@ -1,34 +1,41 @@
 package com.example.a212268_nazatulaini_lab1.ui.theme
 
-import androidx.compose.material3.Typography
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.sp
+import com.example.a212268_nazatulaini_lab1.R
 
-// Set of Material typography styles to start with
-val Typography = Typography(
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+val Alice = FontFamily(
+    Font(R.font.alice_regular)
+)
+val Oswald = FontFamily(
+    Font(R.font.oswald_regular),
+    Font(R.font.oswald_bold, FontWeight.Bold)
+)
+
+val AppTypography = Typography(
+    displayLarge = TextStyle(
+        fontFamily = Alice,
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.5.sp
-    )
-    /* Other default text styles to override
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.sp
+        fontSize = 57.sp
     ),
-    labelSmall = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
+    headlineLarge = TextStyle(
+        fontFamily = Oswald,
+        fontWeight = FontWeight.Bold,
+        fontSize = 32.sp
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = Alice,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp
+    ),
+    labelLarge = TextStyle(
+        fontFamily = Oswald,
+        fontWeight = FontWeight.Bold,
+        fontSize = 14.sp
     )
-    */
+    // add more TextStyles as needed
 )
