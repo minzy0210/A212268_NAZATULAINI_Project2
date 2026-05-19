@@ -37,6 +37,7 @@ import java.util.Locale
 fun AddItemScreen(
     onBack: () -> Unit,
     onHomeClick: () -> Unit = {},
+    onViewItem: (String, String) -> Unit = { _, _ -> },
     viewModel: ReServeViewModel = viewModel()
 ) {
     var itemName        by remember { mutableStateOf("") }
@@ -113,6 +114,17 @@ fun AddItemScreen(
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) { Text("Back to Listings", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                Spacer(Modifier.height(14.dp))
+
+                Button(
+                    onClick = { onViewItem(itemName, category) },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) { Text("View My Listing", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+
                 Spacer(Modifier.height(14.dp))
                 TextButton(onClick = {
                     itemName = ""; location = ""; category = ""

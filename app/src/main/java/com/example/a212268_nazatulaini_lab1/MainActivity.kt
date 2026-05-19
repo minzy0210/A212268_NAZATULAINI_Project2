@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val database = (application as ReServeApplication).database
         val repository = (application as ReServeApplication).repository
 
         val viewModel = ViewModelProvider(
@@ -41,9 +42,14 @@ class MainActivity : ComponentActivity() {
             ReServeViewModel.Factory(repository)
         )[ReServeViewModel::class.java]
 
+        val chatViewModel = ViewModelProvider(
+            this,
+            ChatViewModel.Factory(database.chatMessageDao())
+        )[ChatViewModel::class.java]
+
         setContent {
             AppTheme(dynamicColor = false) {
-                AppNavigation(viewModel = viewModel)
+                AppNavigation(viewModel = viewModel, chatViewModel = chatViewModel)
             }
         }
     }
@@ -80,10 +86,20 @@ fun ReServeApp(
     val userListedItems by viewModel.userListedItems.collectAsStateWithLifecycle()
     val allFood = remember(userListedItems) { viewModel.getFoodItems().map { it.name } }
     val allNonFood = remember(userListedItems) { viewModel.getNonFoodItems().map { it.name } }
-    val goingSoon = viewModel.getGoingSoon().map { it.name }
-    val filteredResults = if (searchQuery.isBlank()) emptyList()
-    else viewModel.searchItems(searchQuery).map { it.name }
-
+    val goingSoon = remember(userListedItems) { viewModel.getGoingSoon().map { it.name } }
+    val filteredResults = remember(searchQuery, userListedItems) {
+        if (searchQuery.isBlank()) emptyList()
+        else viewModel.searchItems(searchQuery).map { it.name }
+    }
+    val reservedQuantities by viewModel.reservedQuantities.collectAsStateWithLifecycle()
+    val borrowedItems by viewModel.borrowedItems.collectAsStateWithLifecycle()
+    val isSoldOut = { name: String ->
+        val reserved = reservedQuantities[name] ?: 0
+        val total = viewModel.getUserListedItem(name)?.quantity
+            ?: getFoodItemData(name).quantity
+        reserved >= total
+    }
+    val isBorrowed = { name: String -> name in borrowedItems }
     Box(modifier = Modifier.fillMaxSize()) {
         Image(
             painter = painterResource(id = R.drawable.wallpaper),
@@ -146,8 +162,8 @@ fun ReServeApp(
                             FullWidthItemCard(
                                 name = item,
                                 imageRes = getItemImage(item),
-                                isSoldOut = viewModel.isSoldOut(item),
-                                isBorrowed = viewModel.isBorrowed(item),
+                                isSoldOut = isSoldOut(item),
+                                isBorrowed = isBorrowed(item),
                                 photoUriString = viewModel.getPhotoUri(item),
                                 onItemClick = {
                                     val userItem = userListedItems.firstOrNull { it.name == item }
@@ -238,12 +254,24 @@ fun ReServeApp(
                                 FullWidthItemCard(
                                     name = item,
                                     imageRes = getItemImage(item),
-                                    isSoldOut = viewModel.isSoldOut(item),
-                                    isBorrowed = viewModel.isBorrowed(item),
+                                    isSoldOut = isSoldOut(item),
+                                    isBorrowed = isBorrowed(item),
                                     photoUriString = viewModel.getPhotoUri(item),
                                     onItemClick = {
-                                        if (selectedFilter == "Food") onFoodItemClick(item)
-                                        else onNonFoodItemClick(item)
+                                        when (selectedFilter) {
+                                            "Food" -> onFoodItemClick(item)
+                                            "Non-food" -> onNonFoodItemClick(item)
+                                            else -> {
+                                                // Going Soon — check actual category
+                                                val userItem = userListedItems.firstOrNull { it.name == item }
+                                                when {
+                                                    userItem?.category?.equals("Food", ignoreCase = true) == true -> onFoodItemClick(item)
+                                                    userItem != null -> onNonFoodItemClick(item)
+                                                    allFood.contains(item) -> onFoodItemClick(item)
+                                                    else -> onNonFoodItemClick(item)
+                                                }
+                                            }
+                                        }
                                     }
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))

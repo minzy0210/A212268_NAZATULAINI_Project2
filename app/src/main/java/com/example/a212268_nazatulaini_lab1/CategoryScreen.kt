@@ -10,6 +10,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,6 +21,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 fun CategoryScreen(
@@ -29,12 +32,26 @@ fun CategoryScreen(
     onNonFoodItemClick: (String) -> Unit = {},
     viewModel: ReServeViewModel
 ) {
-    val items = when (filter) {
-        "Food" -> viewModel.getFoodItems().map { it.name }
-        "Non-food" -> viewModel.getNonFoodItems().map { it.name }
-        else -> emptyList()
+    val userListedItems    by viewModel.userListedItems.collectAsStateWithLifecycle()
+    val reservedQuantities by viewModel.reservedQuantities.collectAsStateWithLifecycle()
+    val borrowedItems      by viewModel.borrowedItems.collectAsStateWithLifecycle()
+
+    // Recomputes when userListedItems changes (new item added)
+    val items = remember(userListedItems, filter) {
+        when (filter) {
+            "Food"     -> viewModel.getFoodItems().map { it.name }
+            "Non-food" -> viewModel.getNonFoodItems().map { it.name }
+            else       -> emptyList()
+        }
     }
 
+    val isSoldOut = { name: String ->
+        val reserved = reservedQuantities[name] ?: 0
+        val total = viewModel.getUserListedItem(name)?.quantity
+            ?: getFoodItemData(name).quantity
+        reserved >= total
+    }
+    val isBorrowed = { name: String -> name in borrowedItems }
     Box(modifier = Modifier.fillMaxSize()) {
 
         Image(
@@ -119,8 +136,8 @@ fun CategoryScreen(
                         FullWidthItemCard(
                             name = name,
                             imageRes = getItemImage(name),
-                            isSoldOut = viewModel.isSoldOut(name),
-                            isBorrowed = viewModel.isBorrowed(name),
+                            isSoldOut = isSoldOut(name),
+                            isBorrowed = isBorrowed(name),
                             photoUriString = viewModel.getPhotoUri(name),
                             onItemClick = {
                                 if (filter == "Non-food") onNonFoodItemClick(name)

@@ -1,91 +1,116 @@
 package com.example.a212268_nazatulaini_lab1
 
 import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.example.a212268_nazatulaini_lab1.data.ChatMessageDao
+import com.example.a212268_nazatulaini_lab1.data.ChatMessageEntity
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlinx.coroutines.flow.map
 
-data class ChatMessage(
-    val id: String,
-    val text: String,
-    val isFromMe: Boolean,
-    val timestamp: String
-)
+class ChatViewModel(private val chatMessageDao: ChatMessageDao) : ViewModel() {
 
-data class Conversation(
-    val ownerName: String,
-    val itemName: String,
-    val itemImageRes: Int,
-    val lastMessage: String,
-    val timestamp: String,
-    val unreadCount: Int = 0
-)
+    // All messages grouped by "owner::item" key
+    val messages: StateFlow<Map<String, List<ChatMessage>>> =
+        chatMessageDao.getAllConversations()
+            .map { entities ->
+                entities.groupBy { "${it.ownerName}::${it.itemName}" }
+                    .mapValues { (_, msgs) ->
+                        msgs.sortedBy { it.timestamp }
+                            .map { it.toDomain() }
+                    }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-class ChatViewModel : ViewModel() {
-    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
-    val conversations: StateFlow<List<Conversation>> = _conversations.asStateFlow()
-
-    private val _messages = MutableStateFlow<Map<String, List<ChatMessage>>>(emptyMap())
-    val messages: StateFlow<Map<String, List<ChatMessage>>> = _messages.asStateFlow()
+    // Distinct conversations (latest message per owner+item)
+    val conversations: StateFlow<List<Conversation>> =
+        chatMessageDao.getAllConversations()
+            .map { entities ->
+                entities
+                    .groupBy { "${it.ownerName}::${it.itemName}" }
+                    .values
+                    .map { msgs ->
+                        val last = msgs.maxByOrNull { it.timestamp }!!
+                        Conversation(
+                            ownerName    = last.ownerName,
+                            itemName     = last.itemName,
+                            itemImageRes = last.itemImageRes,
+                            lastMessage  = last.text,
+                            timestamp    = last.timestamp,
+                            unreadCount  = msgs.count { !it.isFromMe }
+                        )
+                    }
+                    .sortedByDescending { it.timestamp }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun startConversation(ownerName: String, itemName: String, itemImageRes: Int) {
-        val existing = _conversations.value.any { it.ownerName == ownerName && it.itemName == itemName }
-        if (!existing) {
-            val greeting = ChatMessage(
-                id = System.currentTimeMillis().toString(),
-                text = "Hi! I'm interested in your $itemName.",
-                isFromMe = true,
-                timestamp = "Now"
-            )
-            val reply = ChatMessage(
-                id = (System.currentTimeMillis() + 1).toString(),
-                text = "Hello! Sure, feel free to ask me anything about it.",
-                isFromMe = false,
-                timestamp = "Now"
-            )
-            val key = conversationKey(ownerName, itemName)
-            _messages.value = _messages.value + (key to listOf(greeting, reply))
-            _conversations.value = _conversations.value + Conversation(
-                ownerName = ownerName,
-                itemName = itemName,
-                itemImageRes = itemImageRes,
-                lastMessage = reply.text,
-                timestamp = "Now",
-                unreadCount = 1
-            )
+        viewModelScope.launch {
+            val key = "$ownerName::$itemName"
+            val existing = messages.value[key]
+            if (existing.isNullOrEmpty()) {
+                val now = nowTimestamp()
+                chatMessageDao.insert(ChatMessageEntity(
+                    id = System.currentTimeMillis().toString(),
+                    ownerName = ownerName, itemName = itemName,
+                    itemImageRes = itemImageRes,
+                    text = "Hi! I'm interested in your $itemName.",
+                    isFromMe = true, timestamp = now
+                ))
+                chatMessageDao.insert(ChatMessageEntity(
+                    id = (System.currentTimeMillis() + 1).toString(),
+                    ownerName = ownerName, itemName = itemName,
+                    itemImageRes = itemImageRes,
+                    text = "Hello! Sure, feel free to ask me anything about it.",
+                    isFromMe = false, timestamp = nowTimestamp()
+                ))
+            }
         }
     }
 
     fun sendMessage(ownerName: String, itemName: String, text: String) {
         if (text.isBlank()) return
-        val key = conversationKey(ownerName, itemName)
-        val newMsg = ChatMessage(
-            id = System.currentTimeMillis().toString(),
-            text = text,
-            isFromMe = true,
-            timestamp = "Now"
-        )
-        val current = _messages.value[key] ?: emptyList()
-        _messages.value = _messages.value + (key to (current + newMsg))
+        viewModelScope.launch {
+            val imageRes = messages.value["$ownerName::$itemName"]
+                ?.firstOrNull()?.let {
+                    // recover imageRes from existing messages
+                    chatMessageDao.getAllConversations().first()
+                        .firstOrNull { e -> e.ownerName == ownerName && e.itemName == itemName }
+                        ?.itemImageRes ?: getItemImage(itemName)
+                } ?: getItemImage(itemName)
 
-        // Update last message in conversation list
-        _conversations.value = _conversations.value.map {
-            if (it.ownerName == ownerName && it.itemName == itemName)
-                it.copy(lastMessage = text, timestamp = "Now")
-            else it
+            chatMessageDao.insert(ChatMessageEntity(
+                id           = System.currentTimeMillis().toString(),
+                ownerName    = ownerName,
+                itemName     = itemName,
+                itemImageRes = imageRes,
+                text         = text,
+                isFromMe     = true,
+                timestamp    = nowTimestamp()
+            ))
         }
     }
 
-    fun getMessages(ownerName: String, itemName: String): List<ChatMessage> {
-        return _messages.value[conversationKey(ownerName, itemName)] ?: emptyList()
-    }
+    fun markAsRead(ownerName: String, itemName: String) { /* unread count is derived from DB */ }
 
-    fun markAsRead(ownerName: String, itemName: String) {
-        _conversations.value = _conversations.value.map {
-            if (it.ownerName == ownerName && it.itemName == itemName) it.copy(unreadCount = 0)
-            else it
-        }
-    }
+    private fun nowTimestamp() =
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 
-    private fun conversationKey(ownerName: String, itemName: String) = "$ownerName::$itemName"
+    // Factory — ChatViewModel now needs a DAO
+    class Factory(private val dao: ChatMessageDao) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            ChatViewModel(dao) as T
+    }
 }
+
+// Mapper
+fun ChatMessageEntity.toDomain() = ChatMessage(
+    id        = id,
+    text      = text,
+    isFromMe  = isFromMe,
+    timestamp = timestamp
+)

@@ -30,3 +30,19 @@ data class UserListedItem(
     val condition: String = "Good",
     val availableUntil: String = "Ongoing"
 )
+
+data class ChatMessage(
+    val id: String,
+    val text: String,
+    val isFromMe: Boolean,
+    val timestamp: String
+)
+
+data class Conversation(
+    val ownerName: String,
+    val itemName: String,
+    val itemImageRes: Int,
+    val lastMessage: String,
+    val timestamp: String,
+    val unreadCount: Int = 0
+)

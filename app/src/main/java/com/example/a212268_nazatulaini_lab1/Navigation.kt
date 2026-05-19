@@ -1,7 +1,6 @@
 package com.example.a212268_nazatulaini_lab1
 
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -9,7 +8,7 @@ import androidx.navigation.compose.rememberNavController
 @Composable
 fun AppNavigation(
     viewModel: ReServeViewModel,
-    chatViewModel: ChatViewModel = viewModel()
+    chatViewModel: ChatViewModel
 ) {
     val navController = rememberNavController()
 
@@ -76,9 +75,13 @@ fun AppNavigation(
         }
         composable("add_item") {
             AddItemScreen(
-                onBack = { navController.popBackStack() },
+                onBack      = { navController.popBackStack() },
                 onHomeClick = goHome,
-                viewModel = viewModel
+                onViewItem  = { name, cat ->
+                    // Route to the owner's own detail screen, not the buyer screen
+                    navController.navigate("my_listing_detail/$name/$cat")
+                },
+                viewModel   = viewModel
             )
         }
         composable("going_soon") {
@@ -87,6 +90,25 @@ fun AppNavigation(
                 onItemClick = { navController.navigate("foodDetail/$it") },
                 onHomeClick = goHome,
                 viewModel = viewModel
+            )
+        }
+
+        composable("my_listing_detail/{itemName}/{category}") { back ->
+            val name = back.arguments?.getString("itemName") ?: ""
+            val cat  = back.arguments?.getString("category") ?: "Food"
+            MyListingDetailScreen(
+                itemName    = name,
+                category    = cat,
+                onBack      = { navController.popBackStack() },
+                onHomeClick = goHome,
+                onDeleted   = {
+                    // After deletion pop back to home so the deleted item
+                    // is no longer reachable via the back stack.
+                    navController.navigate("home") {
+                        popUpTo("home") { inclusive = false }
+                    }
+                },
+                viewModel   = viewModel          // ← pass the shared instance
             )
         }
         composable("category/{filter}") { back ->

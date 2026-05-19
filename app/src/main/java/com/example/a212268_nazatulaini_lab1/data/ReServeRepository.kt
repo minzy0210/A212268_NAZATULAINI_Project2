@@ -10,7 +10,9 @@ import kotlinx.coroutines.flow.map
 class ReServeRepository(
     private val userListedItemDao: UserListedItemDao,
     private val cartItemDao: CartItemDao,
-    private val chatMessageDao: ChatMessageDao
+    private val chatMessageDao: ChatMessageDao,
+    private val reservationDao: ReservationDao,      // ← ADD
+    private val borrowedItemDao: BorrowedItemDao
 ) {
 
     // ── UserListedItem ────────────────────────────────────────────────
@@ -61,6 +63,21 @@ class ReServeRepository(
 
     suspend fun deleteConversation(owner: String, item: String) =
         chatMessageDao.deleteConversation(owner, item)
+
+    val reservations: Flow<List<ReservationEntity>> = reservationDao.getAll()
+
+    suspend fun reserveItem(itemName: String, quantity: Int) {
+        val existing = reservationDao.getByName(itemName)
+        reservationDao.insert(
+            ReservationEntity(itemName, (existing?.quantity ?: 0) + quantity)
+        )
+    }
+
+    // ── Borrowed items ────────────────────────────────────────────────
+    val borrowedItems: Flow<List<BorrowedItemEntity>> = borrowedItemDao.getAll()
+
+    suspend fun borrowItem(itemName: String) =
+        borrowedItemDao.insert(BorrowedItemEntity(itemName))
 }
 
 // ── Mappers: Entity ↔ Domain model ───────────────────────────────────

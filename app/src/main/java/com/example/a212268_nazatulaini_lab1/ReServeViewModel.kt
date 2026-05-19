@@ -7,10 +7,9 @@ import com.example.a212268_nazatulaini_lab1.data.ReServeRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
 
 // 5. VIEWMODEL — calls repository methods, exposes StateFlow to the UI.
 //    No direct database or DAO imports here.
@@ -48,13 +47,24 @@ class ReServeViewModel(
             initialValue = emptyList()
         )
 
-    // ── Borrow / reservation state (still in-memory; extend if needed) ─
-    private val _reservedQuantities = MutableStateFlow<Map<String, Int>>(emptyMap())
-    val reservedQuantities: StateFlow<Map<String, Int>> = _reservedQuantities.asStateFlow()
+    val reservedQuantities: StateFlow<Map<String, Int>> =
+        repository.reservations
+            .map { list -> list.associate { it.itemName to it.quantity } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    private val _borrowedItems = MutableStateFlow<Set<String>>(emptySet())
-    val borrowedItems: StateFlow<Set<String>> = _borrowedItems.asStateFlow()
+    val borrowedItems: StateFlow<Set<String>> =
+        repository.borrowedItems
+            .map { list -> list.map { it.itemName }.toSet() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    // ── Replace these two functions ───────────────────────────────────────
+    fun reserveFoodItem(itemName: String, quantity: Int) {
+        viewModelScope.launch { repository.reserveItem(itemName, quantity) }
+    }
+
+    fun borrowNonFoodItem(itemName: String) {
+        viewModelScope.launch { repository.borrowItem(itemName) }
+    }
     // ── UserListedItem operations ─────────────────────────────────────
 
     /** Called from AddItemScreen — launches a coroutine to insert into Room */
@@ -130,31 +140,20 @@ class ReServeViewModel(
 
     // ── Reservation / borrow (in-memory) ─────────────────────────────
 
-    fun reserveFoodItem(itemName: String, quantity: Int) {
-        _reservedQuantities.update { current ->
-            current.toMutableMap().also { it[itemName] = (it[itemName] ?: 0) + quantity }
-        }
-    }
-
-    fun borrowNonFoodItem(itemName: String) {
-        _borrowedItems.update { it + itemName }
-    }
-
     fun getRemainingStock(itemName: String): Int {
+        val reserved = reservedQuantities.value[itemName] ?: 0   // ← use StateFlow value
         getUserListedItem(itemName)?.let { userItem ->
-            if (userItem.category == "Food") {
-                val reserved = _reservedQuantities.value[itemName] ?: 0
+            if (userItem.category.equals("Food", ignoreCase = true)) {
                 return (userItem.quantity - reserved).coerceAtLeast(0)
             }
         }
         val originalQty = getFoodItemData(itemName).quantity
-        val reserved = _reservedQuantities.value[itemName] ?: 0
         return (originalQty - reserved).coerceAtLeast(0)
     }
 
     fun isSoldOut(itemName: String) = getRemainingStock(itemName) <= 0
-    fun isBorrowed(itemName: String) = itemName in _borrowedItems.value
 
+    fun isBorrowed(itemName: String) = itemName in borrowedItems.value
     // ── Category helpers ──────────────────────────────────────────────
 
     fun getFoodItems(): List<Item> {
