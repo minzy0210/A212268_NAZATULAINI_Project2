@@ -291,7 +291,7 @@ private fun GoingSoonItemCard(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            if (isSoldOut) "Gone" else "$remaining left · discountPercent}%",
+                            if (isSoldOut) "Gone" else "$remaining left · ${discountPercent}% off",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             color = if (isSoldOut) Color.Gray else Color(0xFFB71C1C),
                             fontSize = 11.sp,

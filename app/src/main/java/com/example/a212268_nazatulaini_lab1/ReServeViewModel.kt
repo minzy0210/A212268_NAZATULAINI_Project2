@@ -69,7 +69,10 @@ class ReServeViewModel(
 
     /** Called from AddItemScreen — launches a coroutine to insert into Room */
     fun addUserItem(item: UserListedItem) {
-        viewModelScope.launch { repository.addUserItem(item) }
+        val normalized = item.copy(
+            category = if (item.category.equals("food", ignoreCase = true)) "Food" else "Non-food"
+        )
+        viewModelScope.launch { repository.addUserItem(normalized) }
     }
 
     fun deleteUserItem(item: UserListedItem) {

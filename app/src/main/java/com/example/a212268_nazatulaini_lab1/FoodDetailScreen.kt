@@ -668,6 +668,31 @@ fun FoodDetailScreen(
                             tint = Color.White,
                             modifier = Modifier.size(64.dp)
                         )
+                        Spacer(modifier = Modifier.height(40.dp))
+
+                        Button(
+                            onClick = onBack,
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                        ) {
+                            Text(
+                                "Back to Listings",
+                                color = Color(0xFF1B5E20),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        TextButton(onClick = { currentScreen = FoodScreen.NONE }) {
+                            Text(
+                                "View Item Again",
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontSize = 14.sp
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(36.dp))
@@ -721,31 +746,7 @@ fun FoodDetailScreen(
                         }
                     }
                 }
-                    Spacer(modifier = Modifier.height(40.dp))
 
-                    Button(
-                        onClick = onBack,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
-                    ) {
-                        Text(
-                            "Back to Listings",
-                            color = Color(0xFF1B5E20),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    TextButton(onClick = { currentScreen = FoodScreen.NONE }) {
-                        Text(
-                            "View Item Again",
-                            color = Color.White.copy(alpha = 0.65f),
-                            fontSize = 14.sp
-                        )
-                    }
                 }
             }
         }

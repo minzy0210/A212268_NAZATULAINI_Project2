@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
 
 @Composable
@@ -23,9 +25,17 @@ fun AppNavigation(
         val userItem = viewModel.getUserListedItem(itemName)
         when {
             userItem != null -> {
-                val encodedName = Uri.encode(userItem.name)
-                val encodedCat  = Uri.encode(userItem.category)
-                navController.navigate("my_listing_detail/$encodedName/$encodedCat")
+                // ALL user-listed items: route based on category
+                // sellerName == "Me" means it's the user's own listing
+                if (userItem.sellerName == "Me") {
+                    navController.navigate(
+                        "my_listing_detail/${Uri.encode(userItem.name)}/${Uri.encode(userItem.category)}"
+                    )
+                } else if (userItem.category.equals("Food", ignoreCase = true)) {
+                    navController.navigate("foodDetail/${Uri.encode(itemName)}")
+                } else {
+                    navController.navigate("nonFoodDetail/${Uri.encode(itemName)}")
+                }
             }
             viewModel.getFoodItems().any { it.name == itemName } ->
                 navController.navigate("foodDetail/${Uri.encode(itemName)}")
@@ -37,8 +47,8 @@ fun AppNavigation(
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
             ReServeApp(
-                onFoodItemClick    = { navigateToDetail(it) },   // ← changed
-                onNonFoodItemClick = { navigateToDetail(it) },   // ← changed
+                onFoodItemClick    = { navigateToDetail(it) },
+                onNonFoodItemClick = { navigateToDetail(it) },
                 onCartClick        = { navController.navigate("cart") },
                 onAddClick         = { navController.navigate("add_item") },
                 onEmailClick       = { owner, item -> navController.navigate("chat_detail/$owner/$item") },
@@ -46,6 +56,7 @@ fun AppNavigation(
                 onAllFoodClick     = { navController.navigate("category/Food") },
                 onAllNonFoodClick  = { navController.navigate("category/Non-food") },
                 onAllGoingSoonClick = { navController.navigate("going_soon") },
+                onHomeClick        = goHome,
                 viewModel          = viewModel
             )
         }
@@ -109,22 +120,26 @@ fun AppNavigation(
             )
         }
 
-        composable("my_listing_detail/{itemName}/{category}") { back ->
-            val name = back.arguments?.getString("itemName") ?: ""
-            val cat  = back.arguments?.getString("category") ?: "Food"
+        composable(
+            "my_listing_detail/{itemName}/{category}",
+            arguments = listOf(
+                navArgument("itemName") { type = NavType.StringType },
+                navArgument("category") { type = NavType.StringType }
+            )
+        ) { back ->
+            val name = Uri.decode(back.arguments?.getString("itemName") ?: "")
+            val cat  = Uri.decode(back.arguments?.getString("category") ?: "Food")
             MyListingDetailScreen(
                 itemName    = name,
                 category    = cat,
                 onBack      = { navController.popBackStack() },
                 onHomeClick = goHome,
                 onDeleted   = {
-                    // After deletion pop back to home so the deleted item
-                    // is no longer reachable via the back stack.
                     navController.navigate("home") {
                         popUpTo("home") { inclusive = false }
                     }
                 },
-                viewModel   = viewModel          // ← pass the shared instance
+                viewModel   = viewModel
             )
         }
         composable("category/{filter}") { back ->
