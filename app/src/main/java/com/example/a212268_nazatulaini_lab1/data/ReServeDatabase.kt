@@ -12,9 +12,10 @@ import androidx.room.RoomDatabase
         CartItemEntity::class,
         ChatMessageEntity::class,
         ReservationEntity::class,      // ← ADD
-        BorrowedItemEntity::class      // ← ADD
+        BorrowedItemEntity::class,
+        UserProfileEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false          // set true + add schema dir if you want migrations
 )
 abstract class ReServeDatabase : RoomDatabase() {
@@ -24,7 +25,9 @@ abstract class ReServeDatabase : RoomDatabase() {
     abstract fun cartItemDao(): CartItemDao
     abstract fun chatMessageDao(): ChatMessageDao
     abstract fun reservationDao(): ReservationDao       // ← ADD
-    abstract fun borrowedItemDao(): BorrowedItemDao     // ← ADD
+    abstract fun borrowedItemDao(): BorrowedItemDao
+
+    abstract fun userProfileDao(): UserProfileDao
     companion object {
         // @Volatile ensures every thread sees the same instance immediately
         @Volatile

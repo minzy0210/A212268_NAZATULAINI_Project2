@@ -1,3 +1,10 @@
+// app/src/main/java/com/example/a212268_nazatulaini_lab1/Navigation.kt
+// CHANGES:
+//  - ProfileViewModel created and passed through
+//  - "profile" route added
+//  - Person icon in CustomBottomNavigation navigates to "profile"
+//  - CustomBottomNavigation has a new onProfileClick param
+
 package com.example.a212268_nazatulaini_lab1
 
 import android.net.Uri
@@ -7,11 +14,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.ViewModelProvider
 
 @Composable
 fun AppNavigation(
     viewModel: ReServeViewModel,
-    chatViewModel: ChatViewModel
+    chatViewModel: ChatViewModel,
+    profileViewModel: ProfileViewModel               // ← ADD
 ) {
     val navController = rememberNavController()
 
@@ -25,8 +34,6 @@ fun AppNavigation(
         val userItem = viewModel.getUserListedItem(itemName)
         when {
             userItem != null -> {
-                // ALL user-listed items: route based on category
-                // sellerName == "Me" means it's the user's own listing
                 if (userItem.sellerName == "Me") {
                     navController.navigate(
                         "my_listing_detail/${Uri.encode(userItem.name)}/${Uri.encode(userItem.category)}"
@@ -47,17 +54,18 @@ fun AppNavigation(
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
             ReServeApp(
-                onFoodItemClick    = { navigateToDetail(it) },
-                onNonFoodItemClick = { navigateToDetail(it) },
-                onCartClick        = { navController.navigate("cart") },
-                onAddClick         = { navController.navigate("add_item") },
-                onEmailClick       = { owner, item -> navController.navigate("chat_detail/$owner/$item") },
-                chatViewModel      = chatViewModel,
-                onAllFoodClick     = { navController.navigate("category/Food") },
-                onAllNonFoodClick  = { navController.navigate("category/Non-food") },
+                onFoodItemClick     = { navigateToDetail(it) },
+                onNonFoodItemClick  = { navigateToDetail(it) },
+                onCartClick         = { navController.navigate("cart") },
+                onAddClick          = { navController.navigate("add_item") },
+                onEmailClick        = { owner, item -> navController.navigate("chat_detail/$owner/$item") },
+                chatViewModel       = chatViewModel,
+                onAllFoodClick      = { navController.navigate("category/Food") },
+                onAllNonFoodClick   = { navController.navigate("category/Non-food") },
                 onAllGoingSoonClick = { navController.navigate("going_soon") },
-                onHomeClick        = goHome,
-                viewModel          = viewModel
+                onHomeClick         = goHome,
+                onProfileClick      = { navController.navigate("profile") },  // ← ADD
+                viewModel           = viewModel
             )
         }
         composable("foodDetail/{itemName}") { back ->
@@ -91,12 +99,12 @@ fun AppNavigation(
         }
         composable("chat_detail/{ownerName}/{itemName}") { back ->
             val owner = back.arguments?.getString("ownerName") ?: ""
-            val item = back.arguments?.getString("itemName") ?: ""
+            val item  = back.arguments?.getString("itemName") ?: ""
             ChatDetailScreen(
                 ownerName = owner,
-                itemName = item,
-                onBack = { navController.popBackStack() },
-                onHomeClick = goHome,
+                itemName  = item,
+                onBack    = { navController.popBackStack() },
+                onHomeClick  = goHome,
                 chatViewModel = chatViewModel
             )
         }
@@ -105,21 +113,19 @@ fun AppNavigation(
                 onBack      = { navController.popBackStack() },
                 onHomeClick = goHome,
                 onViewItem  = { name, cat ->
-                    // Route to the owner's own detail screen, not the buyer screen
                     navController.navigate("my_listing_detail/$name/$cat")
                 },
-                viewModel   = viewModel
+                viewModel = viewModel
             )
         }
         composable("going_soon") {
             GoingSoonScreen(
-                onBack = { navController.popBackStack() },
+                onBack      = { navController.popBackStack() },
                 onItemClick = { navigateToDetail(it) },
                 onHomeClick = goHome,
-                viewModel = viewModel
+                viewModel   = viewModel
             )
         }
-
         composable(
             "my_listing_detail/{itemName}/{category}",
             arguments = listOf(
@@ -139,7 +145,7 @@ fun AppNavigation(
                         popUpTo("home") { inclusive = false }
                     }
                 },
-                viewModel   = viewModel
+                viewModel = viewModel
             )
         }
         composable("category/{filter}") { back ->
@@ -148,9 +154,18 @@ fun AppNavigation(
                 filter             = filter,
                 onBack             = { navController.popBackStack() },
                 onHomeClick        = goHome,
-                onFoodItemClick    = { navigateToDetail(it) },   // ← changed
-                onNonFoodItemClick = { navigateToDetail(it) },   // ← changed
+                onFoodItemClick    = { navigateToDetail(it) },
+                onNonFoodItemClick = { navigateToDetail(it) },
                 viewModel          = viewModel
+            )
+        }
+
+        // ── NEW: Profile screen ───────────────────────────────────────
+        composable("profile") {
+            ProfileScreen(
+                onBack          = { navController.popBackStack() },
+                onHomeClick     = goHome,
+                profileViewModel = profileViewModel
             )
         }
     }

@@ -46,10 +46,18 @@ class MainActivity : ComponentActivity() {
             this,
             ChatViewModel.Factory(database.chatMessageDao())
         )[ChatViewModel::class.java]
+        val profileViewModel = ViewModelProvider(
+            this,
+            ProfileViewModel.Factory(repository)
+        )[ProfileViewModel::class.java]
 
         setContent {
             AppTheme(dynamicColor = false) {
-                AppNavigation(viewModel = viewModel, chatViewModel = chatViewModel)
+                AppNavigation(
+                    viewModel        = viewModel,
+                    chatViewModel    = chatViewModel,
+                    profileViewModel = profileViewModel
+                )
             }
         }
     }
@@ -66,6 +74,7 @@ fun ReServeApp(
     onAllNonFoodClick: () -> Unit = {},
     onAllGoingSoonClick: () -> Unit = {},
     onHomeClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
     initialFilter: String = "All",
     viewModel: ReServeViewModel,
     chatViewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
@@ -124,7 +133,8 @@ fun ReServeApp(
                         onHomeClick()},
                     onSearchClick = { currentTab = "home"; isSearchMode = true },
                     onEmailClick = { currentTab = "messages" },
-                    onAddClick = onAddClick
+                    onAddClick = onAddClick,
+                    onProfileClick = onProfileClick
                 )
             }
         ) { innerPadding ->
@@ -215,7 +225,7 @@ fun ReServeApp(
                                 items = goingSoon,
                                 viewModel = viewModel,
                                 onItemClick = { itemName -> onFoodItemClick(itemName) },
-                                onAllClick = onAllGoingSoonClick    // ← wire it up
+                                onAllClick = onAllGoingSoonClick
                             )
 
                             if (userListedItems.isNotEmpty()) {
@@ -240,7 +250,7 @@ fun ReServeApp(
                             val itemsToShow = when (selectedFilter) {
                                 "Food" -> allFood
                                 "Non-food" -> allNonFood
-                                "Going Soon" -> goingSoon   // ← add this
+                                "Going Soon" -> goingSoon
                                 else -> allFood
                             }
                             Text(
@@ -262,13 +272,12 @@ fun ReServeApp(
                                             "Food" -> onFoodItemClick(item)
                                             "Non-food" -> onNonFoodItemClick(item)
                                             else -> {
-                                                // Going Soon — check actual category
                                                 val userItem = userListedItems.firstOrNull { it.name == item }
                                                 when {
                                                     userItem?.category?.equals("Food", ignoreCase = true) == true -> onFoodItemClick(item)
                                                     userItem != null -> onNonFoodItemClick(item)
                                                     allFood.contains(item) -> onFoodItemClick(item)
-                                                    else -> onNonFoodItemClick(item)
+                                                    else -> onFoodItemClick(item)
                                                 }
                                             }
                                         }
@@ -349,7 +358,7 @@ fun HorizontalRow(
                 modifier = Modifier
                     .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
-                    .clickable { onAllClick() }   // ← wire it up
+                    .clickable { onAllClick() }
             )
         }
         Spacer(modifier = Modifier.height(12.dp))
@@ -731,14 +740,15 @@ fun CustomBottomNavigation(
     onHomeClick: () -> Unit,
     onSearchClick: () -> Unit,
     onEmailClick: () -> Unit,
-    onAddClick: () -> Unit
+    onAddClick: () -> Unit,
+    onProfileClick: () -> Unit = {}
 ) {
     BottomAppBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            IconButton(onClick = onHomeClick) {   // ← was hardcoded, now uses param
+            IconButton(onClick = onHomeClick) {
                 Icon(Icons.Default.Home, null, tint = MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = onSearchClick) {
@@ -751,7 +761,7 @@ fun CustomBottomNavigation(
             ) {
                 Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.onPrimary)
             }
-            IconButton(onClick = {}) {
+            IconButton(onClick = onProfileClick) {
                 Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = onEmailClick) {

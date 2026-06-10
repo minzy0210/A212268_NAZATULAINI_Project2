@@ -340,6 +340,8 @@ fun FoodDetailScreen(
                         )
                     }
 
+                    NutritionCard(itemName = itemName)
+
                     Spacer(modifier = Modifier.height(24.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Spacer(modifier = Modifier.height(24.dp))

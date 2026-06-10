@@ -1,3 +1,6 @@
+// app/src/main/java/com/example/a212268_nazatulaini_lab1/ReServeApplication.kt
+// CHANGE: Pass userProfileDao to ReServeRepository
+
 package com.example.a212268_nazatulaini_lab1
 
 import android.app.Application
@@ -14,7 +17,8 @@ class ReServeApplication : Application() {
             cartItemDao       = database.cartItemDao(),
             chatMessageDao    = database.chatMessageDao(),
             reservationDao    = database.reservationDao(),
-            borrowedItemDao   = database.borrowedItemDao()
+            borrowedItemDao   = database.borrowedItemDao(),
+            userProfileDao    = database.userProfileDao()   // ← ADD
         )
     }
 }
