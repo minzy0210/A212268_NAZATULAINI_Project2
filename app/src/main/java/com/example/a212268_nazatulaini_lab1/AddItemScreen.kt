@@ -16,14 +16,23 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.compose.material.icons.filled.LocationOn
+
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
+
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
+
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -197,6 +206,8 @@ fun AddItemScreen(
                         FormTextField(value = itemName,    onValueChange = { itemName = it },    label = "Item Name",   icon = Icons.Default.Info)
                         Spacer(Modifier.height(12.dp))
                         FormTextField(value = location,    onValueChange = { location = it },    label = "Your Location (e.g. 1.2km, Taman Mulia)", icon = Icons.Default.LocationOn)
+                        Spacer(Modifier.height(8.dp))
+                        GpsLocationButton(onLocationFetched = { location = it })
                         Spacer(Modifier.height(12.dp))
                         FormTextField(value = description, onValueChange = { description = it }, label = "Description", icon = Icons.Default.Edit, singleLine = false, minLines = 3)
                     }
@@ -447,6 +458,79 @@ fun AddItemScreen(
     }
 }
 
+@Composable
+fun GpsLocationButton(
+    onLocationFetched: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isFetching by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val locationHelper = remember { LocationHelper(context) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            isFetching = true
+            scope.launch {
+                val loc = locationHelper.getCurrentLocation()
+                isFetching = false
+                if (loc != null) {
+                    onLocationFetched("%.5f, %.5f".format(loc.latitude, loc.longitude))
+                    error = null
+                } else {
+                    error = "Could not get location. Make sure GPS is on."
+                }
+            }
+        } else {
+            error = "Location permission denied."
+        }
+    }
+
+    fun checkAndFetch() {
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (granted) {
+            isFetching = true
+            scope.launch {
+                val loc = locationHelper.getCurrentLocation()
+                isFetching = false
+                if (loc != null) {
+                    onLocationFetched("%.5f, %.5f".format(loc.latitude, loc.longitude))
+                    error = null
+                } else {
+                    error = "Could not get location. Make sure GPS is on."
+                }
+            }
+        } else {
+            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { checkAndFetch() },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isFetching
+        ) {
+            Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (isFetching) "Getting location..." else "Use My Current Location")
+        }
+        if (error != null) {
+            Text(
+                error!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
 // ── Reusable calendar overlay composable ──────────────────────────────
 @Composable
 private fun CalendarOverlay(
