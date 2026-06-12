@@ -52,7 +52,7 @@ fun MyListingDetailScreen(
     var showDialog   by remember { mutableStateOf(MyListingDialog.NONE) }
     var isMarkedSold by remember { mutableStateOf(false) }
 
-    val isFood = category == "Food"
+    val isFood = category.equals("Food", ignoreCase = true)
     val discountedPrice = if (userItem != null && isFood)
         userItem.originalPrice * (1 - userItem.discountPercent / 100.0)
     else 0.0
@@ -84,18 +84,24 @@ fun MyListingDetailScreen(
             }
         ) { innerPadding ->
 
-            // ── "Not found" guard ─────────────────────────────────────
             if (userItem == null) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Listing not found", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(24.dp))
-                    Button(onClick = onBack) { Text("Go Back") }
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // Show a spinner briefly while Room loads; if it stays null, show error
+                    val userListedItemsLoaded by viewModel.userListedItems.collectAsStateWithLifecycle()
+                    val confirmed = userListedItemsLoaded.any { it.name == itemName }
+                    if (confirmed || userListedItemsLoaded.isNotEmpty()) {
+                        // Room has loaded but item genuinely not found
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(64.dp))
+                            Spacer(Modifier.height(16.dp))
+                            Text("Listing not found", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(24.dp))
+                            Button(onClick = onBack) { Text("Go Back") }
+                        }
+                    } else {
+                        // Still loading from Room
+                        CircularProgressIndicator(color = Color.White)
+                    }
                 }
                 return@Scaffold
             }

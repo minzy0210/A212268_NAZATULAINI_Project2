@@ -32,6 +32,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 data class NonFoodItem(
     val name: String,
@@ -66,7 +67,8 @@ fun NonFoodDetailScreen(
     onHomeClick: () -> Unit = {},
     onMessageOwner: (String, String) -> Unit = { _, _ -> },
     chatViewModel: ChatViewModel = viewModel(),
-    viewModel: ReServeViewModel = viewModel()
+    viewModel: ReServeViewModel = viewModel(),
+    locationViewModel: LocationViewModel = viewModel()
 ) {
     val userItem = viewModel.getUserListedItem(itemName)
     val item = if (userItem != null) {
@@ -84,6 +86,11 @@ fun NonFoodDetailScreen(
         getNonFoodItemData(itemName)
     }
     val isAlreadyBorrowed = viewModel.isBorrowed(itemName)
+    val userLocation by locationViewModel.userLocation.collectAsStateWithLifecycle()
+    val displayDistance = remember(userLocation, item.distance) {
+        locationViewModel.distanceTo(item.distance) ?: item.distance
+    }
+
     var currentScreen by remember { mutableStateOf(NonFoodScreen.NONE) }
 
     val today = remember { LocalDate.now() }
@@ -299,7 +306,7 @@ fun NonFoodDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    item.distance,
+                                    displayDistance,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )

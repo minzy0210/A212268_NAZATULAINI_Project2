@@ -1,10 +1,3 @@
-// app/src/main/java/com/example/a212268_nazatulaini_lab1/Navigation.kt
-// CHANGES:
-//  - ProfileViewModel created and passed through
-//  - "profile" route added
-//  - Person icon in CustomBottomNavigation navigates to "profile"
-//  - CustomBottomNavigation has a new onProfileClick param
-
 package com.example.a212268_nazatulaini_lab1
 
 import android.net.Uri
@@ -14,13 +7,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
-import androidx.lifecycle.ViewModelProvider
 
 @Composable
 fun AppNavigation(
-    viewModel: ReServeViewModel,
-    chatViewModel: ChatViewModel,
-    profileViewModel: ProfileViewModel               // ← ADD
+    viewModel        : ReServeViewModel,
+    chatViewModel    : ChatViewModel,
+    profileViewModel : ProfileViewModel,
+    locationViewModel: LocationViewModel
 ) {
     val navController = rememberNavController()
 
@@ -33,17 +26,16 @@ fun AppNavigation(
     fun navigateToDetail(itemName: String) {
         val userItem = viewModel.getUserListedItem(itemName)
         when {
-            userItem != null -> {
-                if (userItem.sellerName == "Me") {
-                    navController.navigate(
-                        "my_listing_detail/${Uri.encode(userItem.name)}/${Uri.encode(userItem.category)}"
-                    )
-                } else if (userItem.category.equals("Food", ignoreCase = true)) {
-                    navController.navigate("foodDetail/${Uri.encode(itemName)}")
-                } else {
-                    navController.navigate("nonFoodDetail/${Uri.encode(itemName)}")
-                }
+            // Own listing — use query params so special chars / hyphens never break the route
+            userItem != null && userItem.sellerName == "Me" -> {
+                val encodedName = Uri.encode(userItem.name)
+                val encodedCat  = Uri.encode(userItem.category)
+                navController.navigate("my_listing_detail?name=$encodedName&cat=$encodedCat")
             }
+            userItem != null && userItem.category.equals("Food", ignoreCase = true) ->
+                navController.navigate("foodDetail/${Uri.encode(itemName)}")
+            userItem != null ->
+                navController.navigate("nonFoodDetail/${Uri.encode(itemName)}")
             viewModel.getFoodItems().any { it.name == itemName } ->
                 navController.navigate("foodDetail/${Uri.encode(itemName)}")
             else ->
@@ -52,6 +44,7 @@ fun AppNavigation(
     }
 
     NavHost(navController = navController, startDestination = "home") {
+
         composable("home") {
             ReServeApp(
                 onFoodItemClick     = { navigateToDetail(it) },
@@ -64,60 +57,70 @@ fun AppNavigation(
                 onAllNonFoodClick   = { navController.navigate("category/Non-food") },
                 onAllGoingSoonClick = { navController.navigate("going_soon") },
                 onHomeClick         = goHome,
-                onProfileClick      = { navController.navigate("profile") },  // ← ADD
-                viewModel           = viewModel
+                onProfileClick      = { navController.navigate("profile") },
+                viewModel           = viewModel,
+                locationViewModel   = locationViewModel
             )
         }
+
         composable("foodDetail/{itemName}") { back ->
             val itemName = back.arguments?.getString("itemName") ?: ""
             FoodDetailScreen(
-                itemName = itemName,
-                onBack = { navController.popBackStack() },
-                onHomeClick = goHome,
-                onMessageOwner = { owner, item -> navController.navigate("chat_detail/$owner/$item") },
-                viewModel = viewModel,
-                chatViewModel = chatViewModel
+                itemName          = itemName,
+                onBack            = { navController.popBackStack() },
+                onHomeClick       = goHome,
+                onMessageOwner    = { owner, item -> navController.navigate("chat_detail/$owner/$item") },
+                viewModel         = viewModel,
+                chatViewModel     = chatViewModel,
+                locationViewModel = locationViewModel
             )
         }
+
         composable("nonFoodDetail/{itemName}") { back ->
             val itemName = back.arguments?.getString("itemName") ?: ""
             NonFoodDetailScreen(
-                itemName = itemName,
-                onBack = { navController.popBackStack() },
-                onHomeClick = goHome,
-                onMessageOwner = { owner, item -> navController.navigate("chat_detail/$owner/$item") },
-                viewModel = viewModel,
-                chatViewModel = chatViewModel
+                itemName          = itemName,
+                onBack            = { navController.popBackStack() },
+                onHomeClick       = goHome,
+                onMessageOwner    = { owner, item -> navController.navigate("chat_detail/$owner/$item") },
+                viewModel         = viewModel,
+                chatViewModel     = chatViewModel
             )
         }
+
         composable("cart") {
             CartScreen(
-                onBack = { navController.popBackStack() },
+                onBack      = { navController.popBackStack() },
                 onHomeClick = goHome,
-                viewModel = viewModel
+                viewModel   = viewModel
             )
         }
+
         composable("chat_detail/{ownerName}/{itemName}") { back ->
             val owner = back.arguments?.getString("ownerName") ?: ""
             val item  = back.arguments?.getString("itemName") ?: ""
             ChatDetailScreen(
-                ownerName = owner,
-                itemName  = item,
-                onBack    = { navController.popBackStack() },
-                onHomeClick  = goHome,
+                ownerName     = owner,
+                itemName      = item,
+                onBack        = { navController.popBackStack() },
+                onHomeClick   = goHome,
                 chatViewModel = chatViewModel
             )
         }
+
         composable("add_item") {
             AddItemScreen(
                 onBack      = { navController.popBackStack() },
                 onHomeClick = goHome,
                 onViewItem  = { name, cat ->
-                    navController.navigate("my_listing_detail/$name/$cat")
+                    val encodedName = Uri.encode(name)
+                    val encodedCat  = Uri.encode(cat)
+                    navController.navigate("my_listing_detail?name=$encodedName&cat=$encodedCat")
                 },
                 viewModel = viewModel
             )
         }
+
         composable("going_soon") {
             GoingSoonScreen(
                 onBack      = { navController.popBackStack() },
@@ -126,11 +129,19 @@ fun AppNavigation(
                 viewModel   = viewModel
             )
         }
+
+        // ── My listing detail — query-param route (safe for any item name/category) ──
         composable(
-            "my_listing_detail/{itemName}/{category}",
+            route = "my_listing_detail?name={itemName}&cat={category}",
             arguments = listOf(
-                navArgument("itemName") { type = NavType.StringType },
-                navArgument("category") { type = NavType.StringType }
+                navArgument("itemName") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument("category") {
+                    type = NavType.StringType
+                    defaultValue = "Food"
+                }
             )
         ) { back ->
             val name = Uri.decode(back.arguments?.getString("itemName") ?: "")
@@ -148,6 +159,7 @@ fun AppNavigation(
                 viewModel = viewModel
             )
         }
+
         composable("category/{filter}") { back ->
             val filter = back.arguments?.getString("filter") ?: "Food"
             CategoryScreen(
@@ -160,12 +172,12 @@ fun AppNavigation(
             )
         }
 
-        // ── NEW: Profile screen ───────────────────────────────────────
         composable("profile") {
             ProfileScreen(
-                onBack          = { navController.popBackStack() },
-                onHomeClick     = goHome,
-                profileViewModel = profileViewModel
+                onBack            = { navController.popBackStack() },
+                onHomeClick       = goHome,
+                profileViewModel  = profileViewModel,
+                locationViewModel = locationViewModel
             )
         }
     }
