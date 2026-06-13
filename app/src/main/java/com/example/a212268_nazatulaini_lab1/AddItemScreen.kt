@@ -76,9 +76,21 @@ fun AddItemScreen(
    val today = remember { LocalDate.now() }
     val displayFmt = DateTimeFormatter.ofPattern("d MMM yyyy")
 
+    val context = LocalContext.current
+
     val photoLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri -> photoUri = uri }
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) { /* ignore */ }
+            photoUri = uri
+        }
+    }
 
     val isFormValid = itemName.isNotBlank() &&
             location.isNotBlank() && category.isNotBlank() && description.isNotBlank() &&
@@ -176,7 +188,7 @@ fun AddItemScreen(
                                 .fillMaxWidth().height(180.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable { photoLauncher.launch("image/*") },
+                                .clickable { photoLauncher.launch(arrayOf("image/*")) },
                             contentAlignment = Alignment.Center
                         ) {
                             if (photoUri != null) {

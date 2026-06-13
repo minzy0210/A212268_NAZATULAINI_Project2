@@ -1,11 +1,15 @@
 package com.example.a212268_nazatulaini_lab1
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,19 +23,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.rememberAsyncImagePainter
 
 private enum class MyListingDialog { NONE, DELETE, SOLD }
+private enum class MyListingOverlay { NONE, RESERVE_CONFIRM, RESERVED, BORROW_CONFIRM, BORROWED }
 
-/**
- * Pass the shared [ReServeViewModel] instance down from the NavHost —
- * never call viewModel() here directly, because ReServeViewModel requires
- * a custom Factory (it depends on ReServeRepository).
- * The factory is only wired up in MainActivity / the top-level composition.
- */
 @Composable
 fun MyListingDetailScreen(
     itemName: String,
@@ -39,23 +39,68 @@ fun MyListingDetailScreen(
     onBack: () -> Unit,
     onHomeClick: () -> Unit = {},
     onDeleted: () -> Unit = {},
-    viewModel: ReServeViewModel          // ← always injected from NavHost; no default
+    viewModel: ReServeViewModel
 ) {
-    // ── Observe live Room-backed StateFlows ───────────────────────────
     val userListedItems    by viewModel.userListedItems.collectAsStateWithLifecycle()
     val reservedQuantities by viewModel.reservedQuantities.collectAsStateWithLifecycle()
     val borrowedItems      by viewModel.borrowedItems.collectAsStateWithLifecycle()
 
-    val userItem     = userListedItems.firstOrNull { it.name == itemName }
+    val userItem      = userListedItems.firstOrNull { it.name == itemName }
     val reservedCount = reservedQuantities[itemName] ?: 0
 
+    // ── Early return: not found / loading ──────────────────────────────
+    if (userItem == null) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(R.drawable.wallpaper),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f))
+            )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                val confirmed = userListedItems.any { it.name == itemName }
+                if (confirmed || userListedItems.isNotEmpty()) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(64.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("Listing not found", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = onBack) { Text("Go Back") }
+                    }
+                } else {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+        }
+        return
+    }
+
+    // ── Stable non-null reference used everywhere below ────────────────
+    val item = userItem
+
+    val reservedQuantitiesMap = reservedQuantities
+    val borrowedItemsSet = borrowedItems
+
     var showDialog   by remember { mutableStateOf(MyListingDialog.NONE) }
+    var overlay      by remember { mutableStateOf(MyListingOverlay.NONE) }
     var isMarkedSold by remember { mutableStateOf(false) }
+    var quantity     by remember { mutableIntStateOf(1) }
 
     val isFood = category.equals("Food", ignoreCase = true)
-    val discountedPrice = if (userItem != null && isFood)
-        userItem.originalPrice * (1 - userItem.discountPercent / 100.0)
+    val discountedPrice = if (isFood)
+        item.originalPrice * (1 - item.discountPercent / 100.0)
     else 0.0
+
+    val remainingStock = viewModel.getRemainingStock(itemName)
+    val isSoldOut      = viewModel.isSoldOut(itemName)
+    val isBorrowed     = itemName in borrowedItemsSet
+
+    if (quantity > remainingStock && remainingStock > 0) quantity = remainingStock
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -84,37 +129,19 @@ fun MyListingDetailScreen(
             }
         ) { innerPadding ->
 
-            if (userItem == null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    // Show a spinner briefly while Room loads; if it stays null, show error
-                    val userListedItemsLoaded by viewModel.userListedItems.collectAsStateWithLifecycle()
-                    val confirmed = userListedItemsLoaded.any { it.name == itemName }
-                    if (confirmed || userListedItemsLoaded.isNotEmpty()) {
-                        // Room has loaded but item genuinely not found
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(64.dp))
-                            Spacer(Modifier.height(16.dp))
-                            Text("Listing not found", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(24.dp))
-                            Button(onClick = onBack) { Text("Go Back") }
-                        }
-                    } else {
-                        // Still loading from Room
-                        CircularProgressIndicator(color = Color.White)
-                    }
-                }
-                return@Scaffold
-            }
-
             Column(modifier = Modifier.fillMaxSize()) {
 
                 // ── Hero Image ────────────────────────────────────────
                 Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
 
-                    // Show user's uploaded photo, or fall back to bundled drawable
                     if (userItem.photoUri != null) {
+                        val painter = rememberAsyncImagePainter(
+                            model = userItem.photoUri,
+                            error = painterResource(getItemImage(itemName)),
+                            fallback = painterResource(getItemImage(itemName))
+                        )
                         Image(
-                            painter = rememberAsyncImagePainter(userItem.photoUri),
+                            painter = painter,
                             contentDescription = itemName,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -128,7 +155,6 @@ fun MyListingDetailScreen(
                         )
                     }
 
-                    // Gradient scrim
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -143,7 +169,6 @@ fun MyListingDetailScreen(
                             )
                     )
 
-                    // Top bar: back button + MY LISTING badge
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -175,16 +200,34 @@ fun MyListingDetailScreen(
                         }
                     }
 
-                    // Item name + optional SOLD badge at bottom of hero
+                    // ── Discount badge (Food only, matches FoodDetailScreen) ──
+                    if (isFood && item.discountPercent > 0) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(top = 100.dp, start = 16.dp),
+                            color = MaterialTheme.colorScheme.error,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                "-${item.discountPercent}%",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(20.dp)
                     ) {
-                        if (isMarkedSold) {
+                        if (isMarkedSold || isSoldOut || isBorrowed) {
                             Surface(color = MaterialTheme.colorScheme.error, shape = RoundedCornerShape(8.dp)) {
                                 Text(
-                                    "SOLD OUT",
+                                    if (isBorrowed) "BORROWED" else "SOLD OUT",
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp
                                 )
@@ -200,7 +243,7 @@ fun MyListingDetailScreen(
                     }
                 } // end Hero Box
 
-                // ── Info Card (slides up over the hero) ───────────────
+                // ── Info Card ──────────────────────────────────────────
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -243,7 +286,7 @@ fun MyListingDetailScreen(
 
                         Spacer(Modifier.height(20.dp))
 
-                        // ── Price row (Food) or Deposit row (Non-Food) ─
+                        // ── Price / Deposit row ────────────────────────
                         if (isFood) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -252,24 +295,30 @@ fun MyListingDetailScreen(
                             ) {
                                 Column {
                                     Text("Discounted Price", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(
-                                        "RM %.2f".format(discountedPrice),
-                                        style = MaterialTheme.typography.headlineMedium.copy(
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.primary
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "RM %.2f".format(discountedPrice),
+                                            style = MaterialTheme.typography.headlineMedium.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
                                         )
-                                    )
-                                    Text(
-                                        "Original: RM %.2f  •  ${userItem.discountPercent}% off".format(userItem.originalPrice),
-                                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "RM %.2f".format(item.originalPrice),
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                textDecoration = TextDecoration.LineThrough,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        )
+                                    }
                                 }
                                 Surface(
                                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f),
                                     shape = RoundedCornerShape(20.dp)
                                 ) {
                                     Text(
-                                        "Expires: ${userItem.expiresIn}",
+                                        "Expires: ${item.expiresIn}",
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         color = MaterialTheme.colorScheme.error,
                                         fontWeight = FontWeight.Bold, fontSize = 13.sp
@@ -277,7 +326,7 @@ fun MyListingDetailScreen(
                                 }
                             }
                         } else {
-                            val condColor = when (userItem.condition) {
+                            val condColor = when (item.condition) {
                                 "Excellent" -> Color(0xFF2E7D32)
                                 "Good"      -> Color(0xFF1565C0)
                                 else        -> Color(0xFFE65100)
@@ -290,16 +339,16 @@ fun MyListingDetailScreen(
                                 Column {
                                     Text("Refundable Deposit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(
-                                        if (userItem.deposit == 0.0) "FREE" else "RM %.2f".format(userItem.deposit),
+                                        if (item.deposit == 0.0) "FREE" else "RM %.2f".format(item.deposit),
                                         style = MaterialTheme.typography.headlineMedium.copy(
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = if (userItem.deposit == 0.0) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                                            color = if (item.deposit == 0.0) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
                                         )
                                     )
                                 }
                                 Surface(color = condColor.copy(alpha = 0.15f), shape = RoundedCornerShape(20.dp)) {
                                     Text(
-                                        userItem.condition,
+                                        item.condition,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         color = condColor, fontWeight = FontWeight.Bold
                                     )
@@ -320,14 +369,14 @@ fun MyListingDetailScreen(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         ) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                DetailRow(Icons.Default.LocationOn, "Location",  userItem.location)
-                                DetailRow(Icons.Default.Info,       "Category",  userItem.category)
+                                DetailRow(Icons.Default.LocationOn, "Location",  item.location)
+                                DetailRow(Icons.Default.Info,       "Category",  item.category)
                                 if (isFood) {
-                                    DetailRow(Icons.Default.List,      "Quantity", "${userItem.quantity} units")
-                                    DetailRow(Icons.Default.DateRange, "Expiry",   userItem.expiresIn)
+                                    DetailRow(Icons.Default.List,      "Quantity", "${item.quantity} units")
+                                    DetailRow(Icons.Default.DateRange, "Expiry",   item.expiresIn)
                                 } else {
-                                    DetailRow(Icons.Default.DateRange,   "Max Borrow",      "${userItem.maxBorrowDays} days")
-                                    DetailRow(Icons.Default.CheckCircle, "Available Until", userItem.availableUntil)
+                                    DetailRow(Icons.Default.DateRange,   "Max Borrow",      "${item.maxBorrowDays} days")
+                                    DetailRow(Icons.Default.CheckCircle, "Available Until", item.availableUntil)
                                 }
                             }
                         }
@@ -338,7 +387,7 @@ fun MyListingDetailScreen(
                         Text("Description", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            userItem.description,
+                            item.description,
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 24.sp
@@ -357,15 +406,97 @@ fun MyListingDetailScreen(
                             StatCard(
                                 modifier = Modifier.weight(1f),
                                 icon     = if (isFood) Icons.Default.ShoppingCart else Icons.Default.Person,
-                                // reservedCount comes from the live Room-backed StateFlow
                                 value    = if (isFood) "$reservedCount"
-                                else if (itemName in borrowedItems) "1" else "0",
+                                else if (isBorrowed) "1" else "0",
                                 label    = if (isFood) "Reserved" else "Borrowed",
                                 color    = Color(0xFF2E7D32)
                             )
                         }
 
+                        // ═══════════════════════════════════════════════
+                        // ── Reserve / Borrow section ────────────────────
+                        // ═══════════════════════════════════════════════
                         Spacer(Modifier.height(28.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Spacer(Modifier.height(20.dp))
+
+                        if (isFood) {
+                            // ── Quantity picker ──
+                            Text("Select Quantity", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedIconButton(
+                                        onClick = { if (quantity > 1) quantity-- },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                    Text("$quantity", modifier = Modifier.padding(horizontal = 16.dp), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                                    OutlinedIconButton(
+                                        onClick = { if (quantity < remainingStock) quantity++ },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                                Text(
+                                    if (isSoldOut) "Sold Out" else "Available: $remainingStock",
+                                    color = if (isSoldOut) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Spacer(Modifier.height(24.dp))
+
+                            Button(
+                                onClick  = { overlay = MyListingOverlay.RESERVE_CONFIRM },
+                                enabled  = !isSoldOut && !isMarkedSold,
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                shape    = RoundedCornerShape(16.dp),
+                                colors   = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSoldOut || isMarkedSold) Color.Gray else MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text(
+                                    if (isSoldOut) "Sold Out" else "Reserve",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        } else {
+                            // ── Non-food: Borrow button ──
+                            Button(
+                                onClick = {
+                                    if (!isBorrowed) overlay = MyListingOverlay.BORROW_CONFIRM
+                                },
+                                enabled = !isBorrowed && !isMarkedSold,
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isBorrowed || isMarkedSold) Color.Gray
+                                    else MaterialTheme.colorScheme.tertiary
+                                )
+                            ) {
+                                Icon(
+                                    if (isBorrowed) Icons.Default.Lock else Icons.Default.DateRange,
+                                    null
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (isBorrowed) "Currently Borrowed" else "Borrow This Item",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(28.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Spacer(Modifier.height(20.dp))
 
                         // ── Manage actions ────────────────────────────
                         Text("Manage Listing", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
@@ -409,6 +540,220 @@ fun MyListingDetailScreen(
             }
         } // end Scaffold
 
+        // ═══════════════════════════════════════════════════════════════
+        // ── Reserve Confirm overlay (Food) ──
+        // ═══════════════════════════════════════════════════════════════
+        AnimatedVisibility(
+            visible = overlay == MyListingOverlay.RESERVE_CONFIRM,
+            enter = fadeIn(tween(250)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(380, easing = FastOutSlowInEasing)),
+            exit  = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280))
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Image(painterResource(R.drawable.wallpaper), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.80f)))
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp).verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Surface(modifier = Modifier.size(110.dp), shape = RoundedCornerShape(24.dp), color = Color.Transparent) {
+                        if (item.photoUri != null) {
+                            Image(rememberAsyncImagePainter(item.photoUri), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        } else {
+                            Image(painterResource(getItemImage(itemName)), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }
+                    }
+                    Spacer(Modifier.height(28.dp))
+                    Text("Confirm Reservation", style = MaterialTheme.typography.headlineMedium.copy(color = Color.White, fontWeight = FontWeight.ExtraBold), textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Are you sure you want to reserve", color = Color.White.copy(alpha = 0.75f), fontSize = 15.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(4.dp))
+                    Text("$quantity × $itemName", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(4.dp))
+                    Text("for RM %.2f?".format(discountedPrice * quantity), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+                    Spacer(Modifier.height(40.dp))
+                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color.White.copy(alpha = 0.13f)) {
+                        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Item", color = Color.White.copy(0.70f), fontSize = 14.sp)
+                                Text(itemName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Quantity", color = Color.White.copy(0.70f), fontSize = 14.sp)
+                                Text("$quantity unit(s)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Price each", color = Color.White.copy(0.70f), fontSize = 14.sp)
+                                Text("RM %.2f".format(discountedPrice), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            HorizontalDivider(color = Color.White.copy(0.20f))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Total", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text("RM %.2f".format(discountedPrice * quantity), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(36.dp))
+                    Button(
+                        onClick = { viewModel.reserveFoodItem(itemName, quantity); overlay = MyListingOverlay.RESERVED },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) { Text("Yes, Reserve Now", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                    Spacer(Modifier.height(14.dp))
+                    TextButton(onClick = { overlay = MyListingOverlay.NONE }) {
+                        Text("Cancel", color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+
+        // ── Reserved success overlay ───────────────────────────────────
+        AnimatedVisibility(
+            visible = overlay == MyListingOverlay.RESERVED,
+            enter = fadeIn(tween(250)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(380, easing = FastOutSlowInEasing)),
+            exit  = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280))
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Image(painterResource(R.drawable.wallpaper), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1B5E20).copy(alpha = 0.92f)))
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Surface(modifier = Modifier.size(130.dp), shape = CircleShape, color = Color.White.copy(0.10f)) {}
+                        Surface(modifier = Modifier.size(96.dp),  shape = CircleShape, color = Color.White.copy(0.18f)) {}
+                        Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(64.dp))
+                    }
+                    Spacer(Modifier.height(32.dp))
+                    Text("Reserved!", style = MaterialTheme.typography.displaySmall.copy(color = Color.White, fontWeight = FontWeight.ExtraBold))
+                    Spacer(Modifier.height(10.dp))
+                    Text("$quantity × $itemName", style = MaterialTheme.typography.titleLarge.copy(color = Color.White.copy(0.85f), fontWeight = FontWeight.Medium), textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(6.dp))
+                    Text("RM %.2f".format(discountedPrice * quantity), style = MaterialTheme.typography.headlineMedium.copy(color = Color.White, fontWeight = FontWeight.ExtraBold))
+                    Spacer(Modifier.height(36.dp))
+                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color.White.copy(0.13f)) {
+                        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            InfoRow(Icons.Default.LocationOn, "Pick up from ${item.sellerName}")
+                            InfoRow(Icons.Default.DateRange,  "Collect within 2 hours")
+                            InfoRow(Icons.Default.Info,       "Show this screen at pickup")
+                        }
+                    }
+                    Spacer(Modifier.height(36.dp))
+                    Button(
+                        onClick = onBack,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                    ) { Text("Back to Listings", color = Color(0xFF1B5E20), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                    Spacer(Modifier.height(14.dp))
+                    TextButton(onClick = { overlay = MyListingOverlay.NONE }) {
+                        Text("View Item Again", color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // ── Borrow Confirm overlay (Non-Food) ──
+        // ═══════════════════════════════════════════════════════════════
+        AnimatedVisibility(
+            visible = overlay == MyListingOverlay.BORROW_CONFIRM,
+            enter = fadeIn(tween(250)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(380, easing = FastOutSlowInEasing)),
+            exit  = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280))
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Image(painterResource(R.drawable.wallpaper), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.80f)))
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp).verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Surface(modifier = Modifier.size(110.dp), shape = RoundedCornerShape(24.dp), color = Color.Transparent) {
+                        if (item.photoUri != null) {
+                            Image(rememberAsyncImagePainter(item.photoUri), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        } else {
+                            Image(painterResource(getItemImage(itemName)), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }
+                    }
+                    Spacer(Modifier.height(28.dp))
+                    Text("Confirm Borrow Request", style = MaterialTheme.typography.headlineMedium.copy(color = Color.White, fontWeight = FontWeight.ExtraBold), textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Are you sure you want to borrow", color = Color.White.copy(alpha = 0.75f), fontSize = 15.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(4.dp))
+                    Text(itemName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(40.dp))
+                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), color = Color.White.copy(alpha = 0.13f)) {
+                        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Max Borrow", color = Color.White.copy(0.70f), fontSize = 14.sp)
+                                Text("${item.maxBorrowDays} days", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Deposit", color = Color.White.copy(0.70f), fontSize = 14.sp)
+                                Text(
+                                    if (item.deposit == 0.0) "FREE" else "RM %.2f".format(item.deposit),
+                                    color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(36.dp))
+                    Button(
+                        onClick = { viewModel.borrowNonFoodItem(itemName); overlay = MyListingOverlay.BORROWED },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) { Text("Yes, Borrow Now", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                    Spacer(Modifier.height(14.dp))
+                    TextButton(onClick = { overlay = MyListingOverlay.NONE }) {
+                        Text("Cancel", color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+
+        // ── Borrowed success overlay ───────────────────────────────────
+        AnimatedVisibility(
+            visible = overlay == MyListingOverlay.BORROWED,
+            enter = fadeIn(tween(250)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(380, easing = FastOutSlowInEasing)),
+            exit  = fadeOut(tween(200)) + slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280))
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Image(painterResource(R.drawable.wallpaper), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D47A1).copy(alpha = 0.92f)))
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Surface(modifier = Modifier.size(130.dp), shape = CircleShape, color = Color.White.copy(alpha = 0.10f)) {}
+                        Surface(modifier = Modifier.size(96.dp),  shape = CircleShape, color = Color.White.copy(alpha = 0.18f)) {}
+                        Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(64.dp))
+                    }
+                    Spacer(Modifier.height(32.dp))
+                    Text("Request Sent!", style = MaterialTheme.typography.displaySmall.copy(color = Color.White, fontWeight = FontWeight.ExtraBold))
+                    Spacer(Modifier.height(8.dp))
+                    Text(itemName, style = MaterialTheme.typography.titleLarge.copy(color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.Medium), textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(36.dp))
+                    Button(
+                        onClick = onBack,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                    ) { Text("Back to Listings", color = Color(0xFF0D47A1), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                    Spacer(Modifier.height(14.dp))
+                    TextButton(onClick = { overlay = MyListingOverlay.NONE }) {
+                        Text("View Item Again", color = Color.White.copy(alpha = 0.65f), fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+
         // ── Delete confirmation dialog ─────────────────────────────────
         if (showDialog == MyListingDialog.DELETE) {
             ConfirmDialog(
@@ -421,10 +766,7 @@ fun MyListingDetailScreen(
                 confirmColor = MaterialTheme.colorScheme.error,
                 onDismiss  = { showDialog = MyListingDialog.NONE },
                 onConfirm  = {
-                    // deleteUserItem(UserListedItemEntity) — matches the @Delete DAO signature
-                    // The ViewModel's deleteUserItem accepts a UserListedItem (domain model),
-                    // which the repository maps to UserListedItemEntity before calling the DAO.
-                    viewModel.deleteUserItem(userItem!!)
+                    viewModel.deleteUserItem(item)
                     showDialog = MyListingDialog.NONE
                     onDeleted()
                 }
@@ -526,5 +868,14 @@ private fun StatCard(modifier: Modifier = Modifier, icon: ImageVector, value: St
             Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = color)
             Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
+    }
+}
+
+@Composable
+private fun InfoRow(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(text, color = Color.White.copy(alpha = 0.90f), fontSize = 14.sp)
     }
 }
