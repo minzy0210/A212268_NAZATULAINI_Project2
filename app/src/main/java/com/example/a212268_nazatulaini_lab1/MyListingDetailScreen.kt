@@ -32,6 +32,48 @@ import coil.compose.rememberAsyncImagePainter
 private enum class MyListingDialog { NONE, DELETE, SOLD }
 private enum class MyListingOverlay { NONE, RESERVE_CONFIRM, RESERVED, BORROW_CONFIRM, BORROWED }
 
+// ── Safe image composable — handles blank.xml (shape drawable) gracefully ──
+@Composable
+private fun SafeItemImage(
+    itemName: String,
+    photoUri: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    val imageRes = getItemImage(itemName)
+    when {
+        photoUri != null -> Image(
+            painter = rememberAsyncImagePainter(
+                model = photoUri,
+                error = if (imageRes != R.drawable.blank)
+                    painterResource(imageRes) else null,
+                fallback = if (imageRes != R.drawable.blank)
+                    painterResource(imageRes) else null
+            ),
+            contentDescription = itemName,
+            modifier = modifier,
+            contentScale = contentScale
+        )
+        imageRes != R.drawable.blank -> Image(
+            painter = painterResource(imageRes),
+            contentDescription = itemName,
+            modifier = modifier,
+            contentScale = contentScale
+        )
+        else -> Box(
+            modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Image,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                modifier = Modifier.size(48.dp)
+            )
+        }
+    }
+}
+
 @Composable
 fun MyListingDetailScreen(
     itemName: String,
@@ -80,7 +122,6 @@ fun MyListingDetailScreen(
         return
     }
 
-    // ── Stable non-null reference used everywhere below ────────────────
     val item = userItem
 
     val reservedQuantitiesMap = reservedQuantities
@@ -134,26 +175,12 @@ fun MyListingDetailScreen(
                 // ── Hero Image ────────────────────────────────────────
                 Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
 
-                    if (userItem.photoUri != null) {
-                        val painter = rememberAsyncImagePainter(
-                            model = userItem.photoUri,
-                            error = painterResource(getItemImage(itemName)),
-                            fallback = painterResource(getItemImage(itemName))
-                        )
-                        Image(
-                            painter = painter,
-                            contentDescription = itemName,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Image(
-                            painter = painterResource(getItemImage(itemName)),
-                            contentDescription = itemName,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
+                    // Use SafeItemImage to avoid blank.xml crash
+                    SafeItemImage(
+                        itemName = itemName,
+                        photoUri = userItem.photoUri,
+                        modifier = Modifier.fillMaxSize()
+                    )
 
                     Box(
                         modifier = Modifier
@@ -200,7 +227,7 @@ fun MyListingDetailScreen(
                         }
                     }
 
-                    // ── Discount badge (Food only, matches FoodDetailScreen) ──
+                    // ── Discount badge (Food only) ──
                     if (isFood && item.discountPercent > 0) {
                         Surface(
                             modifier = Modifier
@@ -413,9 +440,6 @@ fun MyListingDetailScreen(
                             )
                         }
 
-                        // ═══════════════════════════════════════════════
-                        // ── Reserve / Borrow section ────────────────────
-                        // ═══════════════════════════════════════════════
                         Spacer(Modifier.height(28.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Spacer(Modifier.height(20.dp))
@@ -540,9 +564,7 @@ fun MyListingDetailScreen(
             }
         } // end Scaffold
 
-        // ═══════════════════════════════════════════════════════════════
         // ── Reserve Confirm overlay (Food) ──
-        // ═══════════════════════════════════════════════════════════════
         AnimatedVisibility(
             visible = overlay == MyListingOverlay.RESERVE_CONFIRM,
             enter = fadeIn(tween(250)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(380, easing = FastOutSlowInEasing)),
@@ -556,12 +578,17 @@ fun MyListingDetailScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Surface(modifier = Modifier.size(110.dp), shape = RoundedCornerShape(24.dp), color = Color.Transparent) {
-                        if (item.photoUri != null) {
-                            Image(rememberAsyncImagePainter(item.photoUri), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        } else {
-                            Image(painterResource(getItemImage(itemName)), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }
+                    // ── FIXED: use SafeItemImage instead of painterResource(getItemImage()) ──
+                    Surface(
+                        modifier = Modifier.size(110.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        SafeItemImage(
+                            itemName = itemName,
+                            photoUri = item.photoUri,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                     Spacer(Modifier.height(28.dp))
                     Text("Confirm Reservation", style = MaterialTheme.typography.headlineMedium.copy(color = Color.White, fontWeight = FontWeight.ExtraBold), textAlign = TextAlign.Center)
@@ -656,9 +683,7 @@ fun MyListingDetailScreen(
             }
         }
 
-        // ═══════════════════════════════════════════════════════════════
         // ── Borrow Confirm overlay (Non-Food) ──
-        // ═══════════════════════════════════════════════════════════════
         AnimatedVisibility(
             visible = overlay == MyListingOverlay.BORROW_CONFIRM,
             enter = fadeIn(tween(250)) + slideInVertically(initialOffsetY = { it }, animationSpec = tween(380, easing = FastOutSlowInEasing)),
@@ -672,12 +697,17 @@ fun MyListingDetailScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Surface(modifier = Modifier.size(110.dp), shape = RoundedCornerShape(24.dp), color = Color.Transparent) {
-                        if (item.photoUri != null) {
-                            Image(rememberAsyncImagePainter(item.photoUri), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        } else {
-                            Image(painterResource(getItemImage(itemName)), null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }
+                    // ── FIXED: use SafeItemImage instead of painterResource(getItemImage()) ──
+                    Surface(
+                        modifier = Modifier.size(110.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        SafeItemImage(
+                            itemName = itemName,
+                            photoUri = item.photoUri,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                     Spacer(Modifier.height(28.dp))
                     Text("Confirm Borrow Request", style = MaterialTheme.typography.headlineMedium.copy(color = Color.White, fontWeight = FontWeight.ExtraBold), textAlign = TextAlign.Center)
